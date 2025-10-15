@@ -6,6 +6,51 @@ import {
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 
+// ===== 파노라마 텍스처 로딩 안정화(레이스 방지 + 캐시) =====
+let _panoSeq = 0;            // 요청 시퀀스 번호(항상 마지막 요청만 유효)
+let _inflight = null;        // 진행 중인 요청 식별용(옵션)
+const texCache = new Map();  // URL -> THREE.Texture 캐시
+
+const manager = new THREE.LoadingManager();
+const loader  = new THREE.TextureLoader(manager);
+
+function getTextureCached(url){
+  const hit = texCache.get(url);
+  if (hit && hit.image && hit.image.complete) {
+    return Promise.resolve(hit);
+  }
+  return new Promise((resolve, reject)=>{
+    loader.load(url, tex=>{
+      tex.colorSpace = THREE.SRGBColorSpace;
+      texCache.set(url, tex);
+      resolve(tex);
+    }, undefined, reject);
+  });
+}
+
+async function loadPanoLatest(url){
+  const mySeq = ++_panoSeq;   // 이 함수가 시작될 때의 내 번호
+  _inflight = mySeq;
+  try{
+    const tex = await getTextureCached(url);
+    // 내가 마지막 클릭이 아니면 적용하지 않음
+    if (mySeq !== _panoSeq) return null;
+    return tex;
+  } finally {
+    if (_inflight === mySeq) _inflight = null;
+  }
+}
+
+function applyTexture(tex){
+  if (!tex) return; // 이미 최신 요청이 아님
+  panoTex?.dispose?.();
+  panoTex = tex;
+  mesh.material.map = panoTex;
+  mesh.material.needsUpdate = true;
+  renderer.render(scene3, camera3);
+}
+
+
 /* ========================
    UI 요소
    ======================== */
@@ -358,24 +403,28 @@ function openPanoBySpot(spotId){
   altView.classList.add('active');
   altView.setAttribute('aria-hidden','false');
 
-  // ✅ 파노라마 진입 시 캘리브레이션 다시 시작 (드리프트 억제)
+  // 파노라마 진입 시 재보정
   calibStart = performance.now();
-  _pitchActive = false; // 히스테리시스 상태도 리셋
+  _pitchActive = false;
 
   ensurePano();
+
   const url = PANO_MAP[spotId] || "assets/panos/default.jpg";
-  loadPano(url)
-    .then(tex=>{
-      panoTex?.dispose?.();
-      panoTex = tex;
-      mesh.material.map = panoTex;
-      mesh.material.needsUpdate = true;
-      renderer.render(scene3, camera3);
+
+  // 로딩 중 커서/상태 표시(옵션)
+  altView.style.cursor = 'progress';
+
+  loadPanoLatest(url)
+    .then(tex => {
+      if (tex) applyTexture(tex);   // 오직 "마지막 요청"만 적용
     })
-    .catch(err=>{
+    .catch(err => {
       console.error("Pano load failed:", err);
       alert("파노라마 이미지를 불러오지 못했습니다. 파일 경로를 확인해 주세요.");
       closePano();
+    })
+    .finally(() => {
+      altView.style.cursor = (_inflight ? 'progress' : 'default');
     });
 }
 
@@ -392,7 +441,11 @@ function closePano(){
 /* 스팟 클릭 바인딩 */
 Object.keys(PANO_MAP).forEach(id=>{
   const el = document.getElementById(id);
-  if (el) el.addEventListener('click', ()=>openPanoBySpot(id));
+  if (!el) return;
+  el.addEventListener('click', ()=>{
+    if (_inflight) return;      // 로딩 중이면 무시(또는 큐잉 로직으로 바꿔도 됨)
+    openPanoBySpot(id);
+  });
 });
 backImg.addEventListener('click', closePano);
 altView.addEventListener('click', e=>{ if(e.target===altView) closePano(); });
@@ -581,6 +634,30 @@ const overP = _pitchActive ? Math.max(0, Math.abs(pitchS) - DEAD_P_LO) : 0;
     await loadModels();
     running = true;
     requestAnimationFrame(frame);
+  }catch(err){
+    console.error("초기화 실패:", err);
+    alert("카메라/모델 초기화에 실패했습니다. HTTPS 또는 localhost 환경을 확인하세요.");
+  }
+})();
+
+function preloadPanosSubset(limit = 4){
+  const urls = Object.values(PANO_MAP).slice(0, limit);
+  for (const url of urls) getTextureCached(url).catch(()=>{});
+}
+
+(async function start(){
+  try{
+    await openCam();
+    await loadModels();
+    running = true;
+    requestAnimationFrame(frame);
+
+    // 유휴 시간에 사전 로딩
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(()=>preloadPanosSubset(4), { timeout: 1500 });
+    } else {
+      setTimeout(()=>preloadPanosSubset(4), 1200);
+    }
   }catch(err){
     console.error("초기화 실패:", err);
     alert("카메라/모델 초기화에 실패했습니다. HTTPS 또는 localhost 환경을 확인하세요.");
