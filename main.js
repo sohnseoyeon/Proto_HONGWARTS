@@ -1,3 +1,4 @@
+// main.js
 import {
   FilesetResolver,
   FaceLandmarker,
@@ -5,51 +6,6 @@ import {
   GestureRecognizer,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-
-// ===== 파노라마 텍스처 로딩 안정화(레이스 방지 + 캐시) =====
-let _panoSeq = 0;            // 요청 시퀀스 번호(항상 마지막 요청만 유효)
-let _inflight = null;        // 진행 중인 요청 식별용(옵션)
-const texCache = new Map();  // URL -> THREE.Texture 캐시
-
-const manager = new THREE.LoadingManager();
-const loader  = new THREE.TextureLoader(manager);
-
-function getTextureCached(url){
-  const hit = texCache.get(url);
-  if (hit && hit.image && hit.image.complete) {
-    return Promise.resolve(hit);
-  }
-  return new Promise((resolve, reject)=>{
-    loader.load(url, tex=>{
-      tex.colorSpace = THREE.SRGBColorSpace;
-      texCache.set(url, tex);
-      resolve(tex);
-    }, undefined, reject);
-  });
-}
-
-async function loadPanoLatest(url){
-  const mySeq = ++_panoSeq;   // 이 함수가 시작될 때의 내 번호
-  _inflight = mySeq;
-  try{
-    const tex = await getTextureCached(url);
-    // 내가 마지막 클릭이 아니면 적용하지 않음
-    if (mySeq !== _panoSeq) return null;
-    return tex;
-  } finally {
-    if (_inflight === mySeq) _inflight = null;
-  }
-}
-
-function applyTexture(tex){
-  if (!tex) return; // 이미 최신 요청이 아님
-  panoTex?.dispose?.();
-  panoTex = tex;
-  mesh.material.map = panoTex;
-  mesh.material.needsUpdate = true;
-  renderer.render(scene3, camera3);
-}
-
 
 /* ========================
    UI 요소
@@ -66,7 +22,7 @@ const altView   = $("#alt-view");
 const camVideo  = $("#cam");
 const cursor    = $("#cursor");
 
-/* 타이틀 매핑(그대로 유지) */
+/* 타이틀 매핑 */
 const TITLE_MAP = {
   main:"./assets/titles/main_title.png",
   "r3-btn":"./assets/titles/r3_title.png",
@@ -83,7 +39,7 @@ const TITLE_MAP = {
   "c3-btn":"./assets/titles/c3_title.png",
 };
 
-/* 파노라마 텍스처 매핑(스팟 → 이미지) */
+/* 파노라마 원본 매핑 */
 const PANO_MAP = {
   "r3-btn":"./assets/views/r3_view.png",
   "k4l4-btn":"./assets/views/k4l4_view.png",
@@ -99,7 +55,23 @@ const PANO_MAP = {
   "c3-btn":"./assets/views/c3_view.png",
 };
 
-/* 비율 스케일 유지 (네가 준 코드 유지) */
+/* (2) 썸네일 매핑: 파일 없으면 자동으로 무시됨 */
+const PANO_THUMB = {
+  "r3-btn":"./assets/views/r3_view.thumb.webp",
+  "k4l4-btn":"./assets/views/k4l4_view.thumb.webp",
+  "l4g4-btn":"./assets/views/l4g4_view.thumb.webp",
+  "p3-btn":"./assets/views/p3_view.thumb.webp",
+  "g2q1-btn":"./assets/views/g2q1_view.thumb.webp",
+  "q3f2-btn":"./assets/views/q3f2_view.thumb.webp",
+  "f2e3-btn":"./assets/views/f2e3_view.thumb.webp",
+  "f4u2-btn":"./assets/views/f4u2_view.thumb.webp",
+  "ub2c3-btn":"./assets/views/ub2c3_view.thumb.webp",
+  "z23z33-btn":"./assets/views/z23z33_view.thumb.webp",
+  "c3af-btn":"./assets/views/c3af_view.thumb.webp",
+  "c3-btn":"./assets/views/c3_view.thumb.webp",
+};
+
+/* 비율 스케일 유지 */
 function computeScale(){
   const vw = innerWidth;
   const vh = innerHeight;
@@ -169,7 +141,7 @@ function updateCursor(tx, ty, snap = false) {
   cursor.style.top = _cy + "px";
   cursor.hidden = false;
 
-  // ✅ 손 커서 hover 감지 (SVG 버튼 위인지 확인)
+  // 손 커서 hover 감지
   const el = document.elementFromPoint(_cx, _cy);
   const allBtns = document.querySelectorAll('#scene image[id$="-btn"]');
   allBtns.forEach(btn => btn.classList.remove('hovered'));
@@ -177,7 +149,6 @@ function updateCursor(tx, ty, snap = false) {
     el.classList.add('hovered');
   }
 }
-
 
 /* 클릭 합성 */
 let lastClickAt = 0;
@@ -208,7 +179,7 @@ function clickAtCursor(x,y){
    MediaPipe (머리/손)
    ======================== */
 let fileset, face, pose, gesture;
-const YAW_DIR = -1;  // 지도에서 좌우 스크롤/패닝 직관
+const YAW_DIR = -1;
 const PITCH_DIR = 1;
 
 let baseYaw = 0, basePitch = 0, yawS = 0, pitchS = 0;
@@ -220,16 +191,12 @@ const HAND_HYST_MS = 350, MIN_SWITCH_DELTA = 0.12;
 let lastHandGesture = "None";
 const MIN_CONF = 0.65;
 
-/* ✨ 드리프트 방지: pitch 히스테리시스 상태 */
+/* pitch 히스테리시스 */
 let _pitchActive = false;
 const DEAD_Y = 0.6;
-/* 히스테리시스 임계 (시작/종료 다르게) */
-const DEAD_P_LO = 0.60;      // 움직임 종료 임계(안쪽)
-const DEAD_P_HI = DEAD_P_LO + 0.12; // 움직임 시작 임계(바깥)
+const DEAD_P_LO = 0.60;
+const DEAD_P_HI = DEAD_P_LO + 0.12;
 
-/* ========================
-   카메라/모델 로딩
-   ======================== */
 async function openCam(){
   const stream = await navigator.mediaDevices.getUserMedia({
     video: { facingMode:"user", width:{ideal:1280}, height:{ideal:720} }, audio:false
@@ -269,7 +236,6 @@ function chooseHandIndex(gv, now){
   try{
     const arr = gv?.handedness ?? [];
     if(!arr.length) return lastHandIdx;
-    // Auto 선택
     let bestIdx=lastHandIdx, bestScore=-1, bestSide=lastHandSide;
     for(let i=0;i<arr.length;i++){
       const h=arr[i]?.[0], sc=h?.score ?? -1;
@@ -359,7 +325,7 @@ function shortestAngleDelta(a,b){
 function ensurePano(){
   if (renderer) return;
   renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
-  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); // 성능 캡
   renderer.setSize(innerWidth, innerHeight);
   altView.appendChild(renderer.domElement);
 
@@ -380,18 +346,55 @@ function ensurePano(){
   });
 }
 
-function loadPano(url){
-  return new Promise((resolve,reject)=>{
-    const loader = new THREE.TextureLoader();
+/* ========================
+   텍스처 로딩 최적화 (레이스 방지 + 캐시 + 썸네일 스왑)
+   ======================== */
+let _panoSeq = 0;            // 항상 "마지막 클릭"만 유효하게
+let _inflight = null;        // 진행 중 식별
+const texCache = new Map();  // URL -> THREE.Texture
+
+const manager = new THREE.LoadingManager();
+const loader  = new THREE.TextureLoader(manager);
+
+function getTextureCached(url){
+  return new Promise((resolve, reject)=>{
+    // 썸네일 파일이 실제로 없을 수도 있으니 fetch로 가볍게 존재 확인
+    // (CORS 허용된 동일 오리진 전제. 외부 CDN이면 생략 가능)
+    if (!url) return reject(new Error("no url"));
+    const hit = texCache.get(url);
+    if (hit && hit.image && hit.image.complete) return resolve(hit);
+
     loader.load(url, tex=>{
       tex.colorSpace = THREE.SRGBColorSpace;
+      texCache.set(url, tex);
       resolve(tex);
-    }, undefined, reject);
+    }, undefined, err=>reject(err));
   });
 }
 
+async function loadPanoLatest(url){
+  const mySeq = ++_panoSeq;
+  _inflight = mySeq;
+  try{
+    const tex = await getTextureCached(url);
+    if (mySeq !== _panoSeq) return null; // 더 최신 클릭이 있으면 무시
+    return tex;
+  } finally {
+    if (_inflight === mySeq) _inflight = null;
+  }
+}
+
+function applyTexture(tex){
+  if (!tex) return;
+  panoTex?.dispose?.();
+  panoTex = tex;
+  mesh.material.map = panoTex;
+  mesh.material.needsUpdate = true;
+  renderer.render(scene3, camera3); // 첫 프레임 즉시
+}
+
 /* ========================
-   모드 전환 (+ 파노라마 진입시 재보정 트리거)
+   모드 전환
    ======================== */
 function openPanoBySpot(spotId){
   currentSpot = spotId;
@@ -409,14 +412,21 @@ function openPanoBySpot(spotId){
 
   ensurePano();
 
+  // 1) 썸네일 즉시 적용 (있을 경우)
+  const thumbUrl = PANO_THUMB[spotId];
+  if (thumbUrl) {
+    getTextureCached(thumbUrl).then(tex=>{
+      // 썸네일은 레이스 무시(빠른 피드백용)
+      if (MODE === "PANO" && currentSpot === spotId) applyTexture(tex);
+    }).catch(()=>{ /* 썸네일 없거나 실패해도 무시 */ });
+  }
+
+  // 2) 원본 로드: 항상 "마지막"만 적용
   const url = PANO_MAP[spotId] || "assets/panos/default.jpg";
-
-  // 로딩 중 커서/상태 표시(옵션)
   altView.style.cursor = 'progress';
-
   loadPanoLatest(url)
     .then(tex => {
-      if (tex) applyTexture(tex);   // 오직 "마지막 요청"만 적용
+      if (tex) applyTexture(tex);
     })
     .catch(err => {
       console.error("Pano load failed:", err);
@@ -438,12 +448,11 @@ function closePano(){
   backImg.style.display = 'none';
 }
 
-/* 스팟 클릭 바인딩 */
+/* 스팟 클릭 바인딩 (로딩 중 연타 방지) */
 Object.keys(PANO_MAP).forEach(id=>{
   const el = document.getElementById(id);
-  if (!el) return;
-  el.addEventListener('click', ()=>{
-    if (_inflight) return;      // 로딩 중이면 무시(또는 큐잉 로직으로 바꿔도 됨)
+  if (el) el.addEventListener('click', ()=>{
+    if (_inflight) return; // 로딩 중이면 무시 (원하면 큐잉 로직으로 변경)
     openPanoBySpot(id);
   });
 });
@@ -453,7 +462,7 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape') closePano(); });
 helpImg.addEventListener('click', ()=>{/* TODO: 도움말 */});
 
 /* ========================
-   프레임 루프 (머리=스크롤/패닝/회전, 손=커서/클릭)
+   프레임 루프 (머리=패닝/회전, 손=커서/클릭)
    ======================== */
 let lastTS = -1, prevT = null, hadTipPrev = false;
 
@@ -532,40 +541,23 @@ async function frame(){
     hadTipPrev = true;
   } else hadTipPrev = false;
 
- /* ===== 데드존/히스테리시스/컨트롤 ===== */
+  /* 데드존/히스테리시스/컨트롤 */
+  const overY = Math.max(0, Math.abs(yawS) - DEAD_Y);
+  const yawCtl   = YAW_DIR   * yawS;
+  const pitchCtl = PITCH_DIR * pitchS;
 
-/* 1) yaw 데드존 (기존과 동일) */
-const overY = Math.max(0, Math.abs(yawS) - DEAD_Y);
-
-/* 2) 먼저 컨트롤 값을 '선언'해서 아래에서 참조 가능하게 */
-const yawCtl   = YAW_DIR   * yawS;
-const pitchCtl = PITCH_DIR * pitchS;
-
-/* 3) pitch 히스테리시스 */
-if (_pitchActive) {
-  // 활성 상태에선 충분히 안쪽으로 들어오면 비활성
-  if (Math.abs(pitchS) < DEAD_P_LO * 0.90) _pitchActive = false;
-} else {
-  // 비활성 상태에선 높은 임계를 넘으면 활성
-  if (Math.abs(pitchS) > DEAD_P_HI) _pitchActive = true;
-}
-
-/* 방향을 바꾸려고 할 땐 언제든 재활성화 (끝단에서 걸리는 현상 방지) */
-if (Math.sign(pitchCtl) !== Math.sign(pitchT - pitch)) {
-  // pitchT는 목표, pitch는 현재 → 반대쪽으로 움직이려는 의도 감지
-  _pitchActive = true;
-}
-
-/* 4) 유효 pitch 과잉량 */
-const overP = _pitchActive ? Math.max(0, Math.abs(pitchS) - DEAD_P_LO) : 0;
-
+  if (_pitchActive) {
+    if (Math.abs(pitchS) < DEAD_P_LO * 0.90) _pitchActive = false;
+  } else {
+    if (Math.abs(pitchS) > DEAD_P_HI) _pitchActive = true;
+  }
+  if (Math.sign(pitchCtl) !== Math.sign(pitchT - pitch)) _pitchActive = true;
+  const overP = _pitchActive ? Math.max(0, Math.abs(pitchS) - DEAD_P_LO) : 0;
 
   const SPD = 20;
-//   const yawCtl   = YAW_DIR   * yawS;
-//   const pitchCtl = PITCH_DIR * pitchS;
 
   if (MODE === "MAP"){
-    // 지도 패닝(가로/세로): 스테이지를 translate로 이동
+    // 지도 패닝
     const scale = computeScale();
     const viewW = innerWidth, viewH = innerHeight;
     const stageW = 3840*scale, stageH = 2160*scale;
@@ -586,15 +578,13 @@ const overP = _pitchActive ? Math.max(0, Math.abs(pitchS) - DEAD_P_LO) : 0;
     clearTimeout(document.body._t);
     document.body._t = setTimeout(()=>document.body.classList.remove('yaw-active'),120);
   } else if (MODE === "PANO"){
-    // 파노라마 회전: 체감 방향 일치
+    // 파노라마 회전
     const sens = 1.2;
     const kBase = 0.0025 * sens * (SPD / 20);
     if (overY > 0) yawT   -= Math.sign(yawCtl)   * (0.6 + Math.pow(overY,1.25)) * kBase * 5;
-    // ✅ 고개를 내리면(양의 pitchCtl) '아래'가 보이도록 += 사용
     if (overP > 0) pitchT -= Math.sign(pitchCtl) * overP * kBase * 30;
     pitchT = softClampPitch(pitchT);
 
-    // 카메라 적용/렌더
     if (renderer){
       const s = 0.12; // 관성
       yaw   += shortestAngleDelta(yaw, yawT) * s;
@@ -630,29 +620,21 @@ const overP = _pitchActive ? Math.max(0, Math.abs(pitchS) - DEAD_P_LO) : 0;
    ======================== */
 (async function start(){
   try{
-    await openCam();
-    await loadModels();
-    running = true;
-    requestAnimationFrame(frame);
-  }catch(err){
-    console.error("초기화 실패:", err);
-    alert("카메라/모델 초기화에 실패했습니다. HTTPS 또는 localhost 환경을 확인하세요.");
-  }
-})();
+    // (선택) 서비스워커: 반복 방문 가속 (sw.js 있으면)
+    if ('serviceWorker' in navigator) {
+      try { navigator.serviceWorker.register('/sw.js'); } catch {}
+    }
 
-function preloadPanosSubset(limit = 4){
-  const urls = Object.values(PANO_MAP).slice(0, limit);
-  for (const url of urls) getTextureCached(url).catch(()=>{});
-}
-
-(async function start(){
-  try{
     await openCam();
     await loadModels();
     running = true;
     requestAnimationFrame(frame);
 
-    // 유휴 시간에 사전 로딩
+    // 유휴 시간에 썸네일 사전 로딩 (4개만 예시)
+    function preloadPanosSubset(limit = 4){
+      const urls = Object.values(PANO_THUMB).slice(0, limit).filter(Boolean);
+      for (const url of urls) getTextureCached(url).catch(()=>{});
+    }
     if ('requestIdleCallback' in window) {
       requestIdleCallback(()=>preloadPanosSubset(4), { timeout: 1500 });
     } else {
@@ -663,4 +645,3 @@ function preloadPanosSubset(limit = 4){
     alert("카메라/모델 초기화에 실패했습니다. HTTPS 또는 localhost 환경을 확인하세요.");
   }
 })();
-
