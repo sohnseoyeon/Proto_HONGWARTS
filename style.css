@@ -29,8 +29,8 @@ body {
   left: 0;
   right: 0;
   width: 100vw;
-  height: calc(200px * var(--scale));
-  display: flex;
+  height: calc(264px * var(--scale));
+  display: none;
   align-items: center;
   justify-content: center;
 
@@ -42,6 +42,7 @@ body {
 
 /* ✅ 상세뷰일 때만 글래스 효과/틴트 적용 */
 body.detail-open #glass-header {
+  display: flex;  
   backdrop-filter: blur(calc(var(--glass-blur) * var(--scale)))
     saturate(var(--glass-sat));
   -webkit-backdrop-filter: blur(calc(var(--glass-blur) * var(--scale)))
@@ -68,30 +69,24 @@ body.detail-open #glass-header {
 /* 타이틀/아이콘 (비율 좌표) */
 #title-img {
   position: absolute;
-  top: calc(35px * var(--scale));
-  bottom: calc(30px * var(--scale));
-  height: calc(135px * var(--scale));
+  /* top: calc(35px * var(--scale)); */
+  bottom: calc(21px * var(--scale));
+  height: calc(239px * var(--scale));
   width: auto;
   object-fit: contain;
   user-select: none;
 }
-#back-btn-img,
-#question-btn-img {
+#back-btn-img{
   position: absolute;
-  top: calc(35px * var(--scale));
-  bottom: calc(30px * var(--scale));
-  width: calc(135px * var(--scale));
-  height: calc(135px * var(--scale));
+  top: calc(17px * var(--scale));
+  bottom: calc(17px * var(--scale));
+  width: calc(336px * var(--scale));
+  height: calc(230px * var(--scale));
+  left: calc(26px * var(--scale));
+  display: none;
   object-fit: contain;
   user-select: none;
   cursor: pointer;
-}
-#back-btn-img {
-  left: calc(70px * var(--scale));
-  display: none;
-}
-#question-btn-img {
-  right: calc(70px * var(--scale));
 }
 
 /* ===== 콘텐츠(메인 지도) — 화면 전체, 헤더 뒤에도 깔림 ===== */
@@ -159,10 +154,6 @@ body.detail-open #glass-header {
 #cursor {
   position: fixed;
   z-index: 2000;
-  width: calc(120px * var(--scale));
-  height: calc(120px * var(--scale));
-  border-radius: 50%;
-  background: rgba(255, 2, 121, 0.85);
   width: calc(var(--cursor-w, 100px) * var(--scale));
   height: calc(var(--cursor-h, 150px) * var(--scale));
   pointer-events: none;
@@ -193,6 +184,35 @@ body.detail-open #glass-header {
   height: 1px;
   overflow: hidden;
   clip: rect(1px, 1px, 1px, 1px);
+}
+
+/* ===== 메인 타이틀 그룹 (메인뷰 전용) ===== */
+#main-title-group {
+  position: absolute;
+  top: calc(55px * var(--scale));
+  transform: translateX(-50%);
+  height: calc(239px * var(--scale));
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(616px * var(--scale));
+  z-index: 600;
+  pointer-events: none; /* 커서와 상호작용 방지 */
+}
+
+/* 각 이미지 기본 크기 조절 */
+#main-title-group img {
+  height: 100%;
+  width: auto;
+  user-select: none;
+  object-fit: contain;
+  display: block;
+}
+
+/* detail-open 상태(파노라마뷰)일 때는 숨김 */
+body.detail-open #main-title-group {
+  display: none;
 }
 
 /* 맵 패닝 시 약간의 반응 피드백(선택) */
