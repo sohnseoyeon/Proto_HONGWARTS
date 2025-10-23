@@ -599,6 +599,43 @@ function loadPano(url) {
   });
 }
 
+// === 🖱️ 네이버 거리뷰 스타일 마우스 드래그 회전 ===
+let isDragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+
+altView.addEventListener("mousedown", (e) => {
+  if (MODE !== "PANO") return;
+  isDragging = true;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+  document.body.style.cursor = "grabbing"; // 손모양 커서
+});
+
+window.addEventListener("mouseup", () => {
+  isDragging = false;
+  document.body.style.cursor = "default";
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!isDragging || MODE !== "PANO") return;
+
+  const dx = e.clientX - lastMouseX;
+  const dy = e.clientY - lastMouseY;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+
+  const sensitivity = 0.0025; // 회전 감도 조정 (값 높을수록 더 빠름)
+
+  // 거리뷰처럼 드래그 방향 반대로 회전
+  yawT += dx * sensitivity;
+  pitchT += dy * sensitivity;
+
+  // 피치(상하) 제한
+  pitchT = Math.max(THREE.MathUtils.degToRad(-85),
+                    Math.min(THREE.MathUtils.degToRad(85), pitchT));
+});
+
 /* ========================
    모드 전환 (+ 파노라마 진입시 재보정 트리거)
    ======================== */
