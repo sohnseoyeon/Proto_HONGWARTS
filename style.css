@@ -15,6 +15,10 @@ body {
   height: 100%;
   margin: 0;
   background: #05014a;
+  background-image: url(./assets/bg.png);
+  background-size: cover; /* 이미지를 화면에 꽉 채움 */
+  background-position: center; /* 중앙 정렬 */
+  background-repeat: no-repeat; /* 반복 제거 */
   overflow: hidden;
 }
 
@@ -117,6 +121,7 @@ body.detail-open #glass-header {
   height: 100%;
   display: block;
   background: #05014a;
+  /* background: #05014a; */
 }
 
 /* ===== 파노라마(상세) 뷰 — 화면 전체 덮기, 헤더 아래 레이어 ===== */
@@ -151,6 +156,8 @@ body.detail-open #glass-header {
   background: #000;
   z-index: 1200;
 }
+
+/* 기본 커서 이미지 (대기 상태) */
 #cursor {
   position: fixed;
   z-index: 2000;
@@ -158,17 +165,27 @@ body.detail-open #glass-header {
   height: calc(120px * var(--scale));
   border-radius: 50%;
   background: rgba(255, 2, 121, 0.85);
+  width: calc(var(--cursor-w, 100px) * var(--scale));
+  height: calc(var(--cursor-h, 150px) * var(--scale));
   pointer-events: none;
-  transform: translate(-50%, -50%);
-  transition: transform 0.08s ease, background 0.08s ease, box-shadow 0.08s ease;
-  box-shadow: 0 0 0 10px rgba(0, 150, 255, 0.12);
+
+  /* 커서 핫스팟: 실제 클릭 지점 (중앙이면 50%/50%) */
+  --hot-x: 50%;
+  --hot-y: 50%;
+  transform: translate(calc(-1 * var(--hot-x)), calc(-1 * var(--hot-y)));
+
+  background-image: url("./assets/cursor_idle.png");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  transition: transform 80ms ease, opacity 80ms ease, filter 80ms ease;
+  filter: drop-shadow(0 0 6px rgba(255,255,255,0.35));
 }
+
+/* 클릭(주먹) 상태에서만 이미지 전환 */
 #cursor.clicking {
-  width: 120px;
-  height: 120px;
-  background: rgba(79, 251, 240, 0.85) !important;
-  transform: translate(-50%, -50%) scale(0.72);
-  box-shadow: 0 0 0 6px rgba(255, 60, 60, 0.25);
+  background-image: url("./assets/cursor_click.png");
+  transform: translate(calc(-1 * var(--hot-x)), calc(-1 * var(--hot-y))) scale(0.92);
 }
 
 /* 접근성 숨김(상태 디버그용 요소가 필요할 때) */
