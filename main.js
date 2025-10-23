@@ -286,7 +286,7 @@ function clickAtCursor(x, y) {
   );
   target.dispatchEvent(new MouseEvent("click", { ...common, button: 0 }));
 
-  flash(x, y);
+  // flash(x, y);
   cursor.classList.add("clicking");
   setTimeout(() => cursor.classList.remove("clicking"), 180);
   lastClickAt = now;
