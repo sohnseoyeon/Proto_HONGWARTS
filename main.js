@@ -6,6 +6,9 @@ import {
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 
+THREE.Cache.enabled = true;
+const texLoader = new THREE.TextureLoader();
+
 /* ========================
    UI 요소
    ======================== */
@@ -584,20 +587,27 @@ function ensurePano() {
   });
 }
 
-function loadPano(url) {
+let currentLoadToken = 0;
+
+function loadPanoTexture(url, token) {
   return new Promise((resolve, reject) => {
-    const loader = new THREE.TextureLoader();
-    loader.load(
+    texLoader.load(
       url,
       (tex) => {
+        if (token !== currentLoadToken) { tex.dispose(); return; }
         tex.colorSpace = THREE.SRGBColorSpace;
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipMapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.anisotropy = Math.min(8, renderer?.capabilities.getMaxAnisotropy?.() || 4);
         resolve(tex);
       },
       undefined,
-      reject
+      (err) => { if (token === currentLoadToken) reject(err); }
     );
   });
 }
+
 
 // === 🖱️ 네이버 거리뷰 스타일 마우스 드래그 회전 ===
 let isDragging = false;
@@ -639,47 +649,72 @@ window.addEventListener("mousemove", (e) => {
 /* ========================
    모드 전환 (+ 파노라마 진입시 재보정 트리거)
    ======================== */
-function openPanoBySpot(spotId) {
+async function openPanoBySpot(spotId) {
+  const myToken = ++currentLoadToken; // 새 요청 토큰
+
+  // 상태/타이틀만 먼저
   currentSpot = spotId;
   MODE = "PANO";
-  document.body.classList.add("detail-open");
   titleImg.src = TITLE_MAP[spotId] || TITLE_MAP.main;
   backImg.style.display = "block";
 
-  altView.classList.add("active");
-  altView.setAttribute("aria-hidden", "false");
-
-  // ✅ 파노라마 진입 시 캘리브레이션 다시 시작 (드리프트 억제)
+  // 시점 리셋
   calibStart = performance.now();
-  _pitchActive = false; // 히스테리시스 상태도 리셋
-  // ✅ 파노라마 시점 초기화(항상 중앙에서 시작)
-  yaw = 0;
-  pitch = 0;
-  yawT = 0;
-  pitchT = 0;
-  baseYaw = 0;
-  basePitch = 0; // 기준도 초기화
+  _pitchActive = false;
+  yaw = pitch = yawT = pitchT = 0;
+  baseYaw = basePitch = 0;
 
   ensurePano();
-  const url = PANO_MAP[spotId] || "assets/panos/default.jpg";
-  loadPano(url)
-    .then((tex) => {
-      panoTex?.dispose?.();
-      panoTex = tex;
-      mesh.material.map = panoTex;
-      mesh.material.needsUpdate = true;
-      renderer.render(scene3, camera3);
-    })
-    .catch((err) => {
-      console.error("Pano load failed:", err);
-      alert(
-        "파노라마 이미지를 불러오지 못했습니다. 파일 경로를 확인해 주세요."
-      );
-      closePano();
-    });
+
+  const full = PANO_MAP[spotId] || "assets/panos/default.jpg";
+  const thumb = full.replace(/\.jpg$/i, "_thumb.jpg"); // 썸네일 있으면 사용
+
+  try {
+    // (선택) 썸네일 먼저
+    let usingThumb = false;
+    if (thumb !== full) {
+      try {
+        const texThumb = await loadPanoTexture(thumb, myToken);
+        if (myToken !== currentLoadToken) return;
+        mesh.material.map = texThumb;
+        mesh.material.needsUpdate = true;
+
+        // 이제 화면을 켠다(썸네일 표시)
+        document.body.classList.add("detail-open");
+        altView.setAttribute("aria-hidden", "false");
+        altView.classList.add("active");
+        renderer.render(scene3, camera3);
+        usingThumb = true;
+      } catch {} // 썸네일 실패는 무시
+    }
+
+    // 풀 해상도 로드 → 스왑
+    const texFull = await loadPanoTexture(full, myToken);
+    if (myToken !== currentLoadToken) return;
+
+    if (!usingThumb) {
+      // 썸네일이 없었다면 여기서 화면 켜기(풀해상도 준비된 상태)
+      document.body.classList.add("detail-open");
+      altView.setAttribute("aria-hidden", "false");
+      altView.classList.add("active");
+    }
+
+    const old = mesh.material.map;
+    mesh.material.map = texFull;
+    mesh.material.needsUpdate = true;
+    renderer.render(scene3, camera3);
+
+    setTimeout(() => { if (old && old !== texFull) old.dispose?.(); }, 300);
+  } catch (err) {
+    console.error("Pano load failed:", err);
+    alert("파노라마 이미지를 불러오지 못했습니다. 파일 경로를 확인해 주세요.");
+    if (myToken === currentLoadToken) closePano();
+  }
 }
 
+
 function closePano() {
+  currentLoadToken++; // 이후 늦게 도착한 로드는 자동 무시
   MODE = "MAP";
   currentSpot = null;
   altView.classList.remove("active");
@@ -688,6 +723,7 @@ function closePano() {
   titleImg.src = TITLE_MAP.main;
   backImg.style.display = "none";
 }
+
 
 /* 스팟 클릭 바인딩 */
 Object.keys(PANO_MAP).forEach((id) => {

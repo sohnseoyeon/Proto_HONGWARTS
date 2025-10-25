@@ -133,6 +133,7 @@ body.detail-open #glass-header {
 #alt-view.active {
   opacity: 1;
   pointer-events: auto;
+  transition: opacity .25s ease;
 }
 
 /* ===== 제스처: 카메라/커서 (UI 최소 침범로 배치) ===== */
