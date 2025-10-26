@@ -75,83 +75,85 @@ applyScale();
    ======================== */
 
 // === Autorange for hand -> screen mapping ===
-let obsX = { min: 1, max: 0 }, obsY = { min: 1, max: 0 };
-const EDGE_MARGIN = 0.08;      // 끝 여유 (5~10%)
-// const HAND_LOST_MS = 600;      // 손 락 유지 시간 (있으면 그대로)
-function resetObs() { obsX = { min: 1, max: 0 }; obsY = { min: 1, max: 0 }; }
+let obsX = { min: 1, max: 0 },
+  obsY = { min: 1, max: 0 };
+const EDGE_MARGIN = 0.08; // 끝 여유 (5~10%)
+function resetObs() {
+  obsX = { min: 1, max: 0 };
+  obsY = { min: 1, max: 0 };
+}
 
 function observe(uX, uY) {
   // 관측치 갱신
-  obsX.min = Math.min(obsX.min, uX); obsX.max = Math.max(obsX.max, uX);
-  obsY.min = Math.min(obsY.min, uY); obsY.max = Math.max(obsY.max, uY);
+  obsX.min = Math.min(obsX.min, uX);
+  obsX.max = Math.max(obsX.max, uX);
+  obsY.min = Math.min(obsY.min, uY);
+  obsY.max = Math.max(obsY.max, uY);
   // 과도하게 좁아지지 않게 천천히 벌림
   const a = 0.02;
-  obsX.min = (1 - a) * obsX.min + a * 0.0; obsX.max = (1 - a) * obsX.max + a * 1.0;
-  obsY.min = (1 - a) * obsY.min + a * 0.0; obsY.max = (1 - a) * obsY.max + a * 1.0;
+  obsX.min = (1 - a) * obsX.min + a * 0.0;
+  obsX.max = (1 - a) * obsX.max + a * 1.0;
+  obsY.min = (1 - a) * obsY.min + a * 0.0;
+  obsY.max = (1 - a) * obsY.max + a * 1.0;
 }
 function mapAdaptive(u, minV, maxV) {
-  const eps = 1e-6, span = Math.max(maxV - minV, eps);
-  let t = (u - minV) / span;                        // 0~1 정규화
-  t = (t - 0.5) * (1 + 2 * EDGE_MARGIN) + 0.5;     // 좌우/상하 과확장
-  return Math.min(1, Math.max(0, t));              // 최종 0~1
+  const eps = 1e-6,
+    span = Math.max(maxV - minV, eps);
+  let t = (u - minV) / span; // 0~1 정규화
+  t = (t - 0.5) * (1 + 2 * EDGE_MARGIN) + 0.5; // 좌우/상하 과확장
+  return Math.min(1, Math.max(0, t)); // 최종 0~1
 }
-
 
 // === Primary Face Lock (first-seen) ===
 let primaryFaceIdx = null;
 let lastFaceCentroid = null; // {x, y} in video normalized coords
-const FACE_LOST_MS = 2000;   // 이 시간 이상 보이지 않으면 락 해제
+const FACE_LOST_MS = 2000; // 이 시간 이상 보이지 않으면 락 해제
 let primaryFaceLastSeenAt = 0;
 
 function faceCentroid(lms) {
   // 간단하게 눈/코 평균 중심 사용
-  const L = lms[33], R = lms[263], N = lms[1];
+  const L = lms[33],
+    R = lms[263],
+    N = lms[1];
   const cx = (L.x + R.x + N.x) / 3;
   const cy = (L.y + R.y + N.y) / 3;
   return { x: cx, y: cy };
 }
-
 function distance2(a, b) {
-  const dx = a.x - b.x, dy = a.y - b.y;
-  return dx*dx + dy*dy;
+  const dx = a.x - b.x,
+    dy = a.y - b.y;
+  return dx * dx + dy * dy;
 }
-
-// 여러 얼굴이 있을 때도 "처음 잡힌 얼굴"을 유지.
-// 얼굴이 잠깐 가려져도 최근 위치에 가장 가까운 걸 이어받음.
-// 오래(=FACE_LOST_MS) 안 보이면 락 해제 후 새로 잡힌 첫 얼굴을 다시 락.
 function selectPrimaryFaceIndex(fv, nowTs) {
   const faces = fv?.faceLandmarks || [];
   if (!faces.length) return null;
 
-  // 아직 락이 없으면 "첫 번째로 보이는 얼굴"을 락
   if (primaryFaceIdx == null) {
     primaryFaceIdx = 0;
     lastFaceCentroid = faceCentroid(faces[primaryFaceIdx]);
     primaryFaceLastSeenAt = nowTs;
     return primaryFaceIdx;
   }
-
-  // 락이 있는데 landmarks 배열 길이가 이전과 달라졌거나, 인덱스가 벗어나면
-  // '이전 중심점에 가장 가까운 얼굴'로 재매칭
   if (!faces[primaryFaceIdx]) {
-    let bestI = 0, bestD = Infinity;
+    let bestI = 0,
+      bestD = Infinity;
     for (let i = 0; i < faces.length; i++) {
       const c = faceCentroid(faces[i]);
       const d2 = distance2(c, lastFaceCentroid || c);
-      if (d2 < bestD) { bestD = d2; bestI = i; }
+      if (d2 < bestD) {
+        bestD = d2;
+        bestI = i;
+      }
     }
     primaryFaceIdx = bestI;
     lastFaceCentroid = faceCentroid(faces[primaryFaceIdx]);
     primaryFaceLastSeenAt = nowTs;
     return primaryFaceIdx;
   }
-
-  // 정상적으로 보이는 경우: 같은 인덱스를 유지하되, 중심 업데이트
   lastFaceCentroid = faceCentroid(faces[primaryFaceIdx]);
   primaryFaceLastSeenAt = nowTs;
   return primaryFaceIdx;
 }
-
 function maybeUnlockPrimaryFace(nowTs) {
   if (primaryFaceIdx != null && nowTs - primaryFaceLastSeenAt > FACE_LOST_MS) {
     primaryFaceIdx = null;
@@ -159,22 +161,22 @@ function maybeUnlockPrimaryFace(nowTs) {
   }
 }
 
-
 let running = true,
   rafId = null;
 let MODE = "MAP"; // "MAP" | "PANO"
 let currentSpot = null;
 
-/* 커서 보간 */
+/* ----- 커서 보간 (느리게 + 데드존) ----- */
 let _cxS = innerWidth * 0.5,
   _cyS = innerHeight * 0.5;
 let _cx = _cxS,
   _cy = _cyS;
-const MAX_STEP = 20000; // 더 빠르고 멀리 이동 허용
-const LERP_MOVE = 0.5; // 반응성 상승
+const MAX_STEP = 1200; // 20000 → 1200 (이상치 점프 억제)
+const LERP_MOVE = 0.4; // 0.5 → 0.18 (느리고 안정적)
+const CURSOR_NOISE_DEADZONE = 2.5; // 미세 떨림 무시
 
-/* 중앙값 버퍼 */
-const MEDIAN_WINDOW = 1;
+/* ----- 중앙값 버퍼 (유효한 median) ----- */
+const MEDIAN_WINDOW = 7; // 1 → 7
 const bufX = [],
   bufY = [];
 function pushBuf(buf, v) {
@@ -182,8 +184,16 @@ function pushBuf(buf, v) {
   if (buf.length > MEDIAN_WINDOW) buf.shift();
 }
 function median(buf) {
-  return buf.length ? buf[buf.length - 1] : null;
+  if (!buf.length) return null;
+  const a = buf.slice().sort((x, y) => x - y);
+  const mid = a.length >> 1;
+  return a.length % 2 ? a[mid] : 0.5 * (a[mid - 1] + a[mid]);
 }
+
+/* ----- 저역통과 1차 IIR (손끝 좌표 안정화) ----- */
+let lpX = null,
+  lpY = null;
+const TIP_LP = 0.3; // 0~1 (클수록 빠르게). 0.30이면 꽤 안정적
 
 /* 플래시 */
 function flash(x, y) {
@@ -207,13 +217,11 @@ function flash(x, y) {
 
 /* 커서 이동 */
 function updateCursor(tx, ty, snap = false) {
-  // 커서 시각 크기(120px)와 무관하게 히트 반지름은 별도로 작게
-  const HIT_RADIUS = 0; // ← 화면 끝까지 닿게 만들 핵심! (원하면 0~2로 더 줄여도 됨)
+  const HIT_RADIUS = 0;
 
   const W = innerWidth,
     H = innerHeight;
-  // const R = (cursor?.offsetWidth || 24) / 2;
-  const R = HIT_RADIUS
+  const R = HIT_RADIUS;
   tx = Math.max(R, Math.min(W - R, tx));
   ty = Math.max(R, Math.min(H - R, ty));
 
@@ -221,13 +229,16 @@ function updateCursor(tx, ty, snap = false) {
     _cxS = tx;
     _cyS = ty;
   } else {
-    const dx = tx - _cxS,
-      dy = ty - _cyS;
-    const dist = Math.hypot(dx, dy);
-    if (dist > MAX_STEP) {
-      const r = MAX_STEP / dist;
-      tx = _cxS + dx * r;
-      ty = _cyS + dy * r;
+    const ddx = tx - _cxS,
+      ddy = ty - _cyS;
+    const d = Math.hypot(ddx, ddy);
+    if (d < CURSOR_NOISE_DEADZONE) {
+      tx = _cxS;
+      ty = _cyS; // 미세 변화 무시
+    } else if (d > MAX_STEP) {
+      const r = MAX_STEP / d;
+      tx = _cxS + ddx * r;
+      ty = _cyS + ddy * r;
     }
     _cxS = _cxS + (tx - _cxS) * LERP_MOVE;
     _cyS = _cyS + (ty - _cyS) * LERP_MOVE;
@@ -316,23 +327,24 @@ let lastHandIdx = null,
   lastHandSeenAt = 0;
 const HAND_HYST_MS = 350,
   MIN_SWITCH_DELTA = 0.12;
+// 🔼 사용은 아직 없지만 유지
 let lastHandGesture = "None";
-const MIN_CONF = 0.65;
+const MIN_CONF = 0.75; // 0.65 → 0.75 (헛클릭 감소)
 
 /* ✨ 드리프트 방지: pitch 히스테리시스 상태 */
 let _pitchActive = false;
 const DEAD_Y = 0.5; // 마스크/안경에서도 좌우 감지를 위해 완화
 /* 히스테리시스 임계 (시작/종료 다르게) */
-const DEAD_P_LO = 0.6; // 상하도 너무 빡세지 않게 완화
-const DEAD_P_HI = DEAD_P_LO + 0.12; // 움직임 시작 임계(바깥)
+const DEAD_P_LO = 0.6;
+const DEAD_P_HI = DEAD_P_LO + 0.12;
 
 /* 새 관람객 인지용 상태 */
-let facePresent = false; // 현재 얼굴이 안정적으로 보이는 상태인지
-let lastFaceSeenAt = 0; // 마지막으로 얼굴을 본 시각
-let candidateFaceStart = 0; // 얼굴이 다시 보이기 시작한 시각(안정성 확인을 위해)
-const FACE_GONE_MS = 2500; // 이 시간 이상 얼굴이 안 보이면 '부재'
-const FACE_STABLE_MS = 600; // 재등장 후 이 시간 유지되면 '새 관람객'
-let lastFaceGoneAt = 0; // 마지막으로 부재로 판정된 시각
+let facePresent = false;
+let lastFaceSeenAt = 0;
+let candidateFaceStart = 0;
+const FACE_GONE_MS = 2500;
+const FACE_STABLE_MS = 600;
+let lastFaceGoneAt = 0;
 
 /* ========================
    카메라/모델 로딩
@@ -364,7 +376,7 @@ async function loadModels() {
     outputFacialTransformationMatrixes: true,
     runningMode: "VIDEO",
     numFaces: 4,
-    minFaceDetectionConfidence: 0.3, // 마스크/모자 상황에서 탐지 민감도 완화
+    minFaceDetectionConfidence: 0.3,
     minFacePresenceConfidence: 0.3,
     minTrackingConfidence: 0.3,
   });
@@ -386,24 +398,19 @@ async function loadModels() {
   });
 }
 
-const HAND_LOST_MS = 600; // 이 시간 이상 그 손이 안 보이면 새 손으로 락 전환
+const HAND_LOST_MS = 600;
 
 function chooseHandIndex(gv, now) {
   try {
     const arr = gv?.handedness ?? [];
-    // 현재 락된 손이 유효하고 최근에 관측됐다면 그대로 유지
     if (lastHandIdx != null) {
       const stillThere =
-        gv?.landmarks?.[lastHandIdx] && (now - lastHandSeenAt) < HAND_LOST_MS;
+        gv?.landmarks?.[lastHandIdx] && now - lastHandSeenAt < HAND_LOST_MS;
       if (stillThere) {
         return lastHandIdx;
       }
     }
-
-    // 여기까지 왔다는 건 (1) 락이 없거나 (2) 오래 사라졌거나 (3) 인덱스가 무효
     if (!arr.length) return null;
-
-    // "가장 먼저 잡힌 손" = 이번 프레임에서 보이는 가장 앞의(=index가 작은) 손으로 락
     const first = arr[0]?.[0];
     lastHandIdx = 0;
     lastHandSide = first?.categoryName || "Right";
@@ -413,7 +420,6 @@ function chooseHandIndex(gv, now) {
     return lastHandIdx;
   }
 }
-
 
 function readGesture(gv, idx) {
   try {
@@ -428,13 +434,13 @@ function readGesture(gv, idx) {
   }
 }
 
-/* 2D Kalman */
+/* 2D Kalman (완화 튜닝) */
 class Kalman2D {
   constructor() {
     this.x = new Float64Array([_cxS, _cyS, 0, 0]);
-    this.P = this.eye(4, 200);
-    this.Q_base = 20.0;
-    this.R_meas = 10.0;
+    this.P = this.eye(4, 300); // 200 → 300
+    this.Q_base = 6.0; // 20.0 → 6.0
+    this.R_meas = 28.0; // 10.0 → 28.0
   }
   eye(n, s = 1) {
     const M = Array.from({ length: n }, (_, i) => Array(n).fill(0));
@@ -444,8 +450,8 @@ class Kalman2D {
   mul(A, B) {
     const r = A.length,
       c = B[0].length,
-      n = B.length,
-      R = Array.from({ length: r }, () => Array(c).fill(0));
+      n = B.length;
+    const R = Array.from({ length: r }, () => Array(c).fill(0));
     for (let i = 0; i < r; i++)
       for (let k = 0; k < n; k++) {
         const v = A[i][k];
@@ -560,8 +566,13 @@ function shortestAngleDelta(a, b) {
 
 function ensurePano() {
   if (renderer) return;
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer = new THREE.WebGLRenderer({
+    antialias: innerWidth < 1920, // 4K에서는 false
+    alpha: false,
+    powerPreference: "high-performance",
+  });
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
   renderer.setSize(innerWidth, innerHeight);
   altView.appendChild(renderer.domElement);
 
@@ -594,20 +605,27 @@ function loadPanoTexture(url, token) {
     texLoader.load(
       url,
       (tex) => {
-        if (token !== currentLoadToken) { tex.dispose(); return; }
+        if (token !== currentLoadToken) {
+          tex.dispose();
+          return;
+        }
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.generateMipmaps = true;
         tex.minFilter = THREE.LinearMipMapLinearFilter;
         tex.magFilter = THREE.LinearFilter;
-        tex.anisotropy = Math.min(8, renderer?.capabilities.getMaxAnisotropy?.() || 4);
+        tex.anisotropy = Math.min(
+          8,
+          renderer?.capabilities.getMaxAnisotropy?.() || 4
+        );
         resolve(tex);
       },
       undefined,
-      (err) => { if (token === currentLoadToken) reject(err); }
+      (err) => {
+        if (token === currentLoadToken) reject(err);
+      }
     );
   });
 }
-
 
 // === 🖱️ 네이버 거리뷰 스타일 마우스 드래그 회전 ===
 let isDragging = false;
@@ -619,46 +637,38 @@ altView.addEventListener("mousedown", (e) => {
   isDragging = true;
   lastMouseX = e.clientX;
   lastMouseY = e.clientY;
-  document.body.style.cursor = "grabbing"; // 손모양 커서
+  document.body.style.cursor = "grabbing";
 });
-
 window.addEventListener("mouseup", () => {
   isDragging = false;
   document.body.style.cursor = "default";
 });
-
 window.addEventListener("mousemove", (e) => {
   if (!isDragging || MODE !== "PANO") return;
-
   const dx = e.clientX - lastMouseX;
   const dy = e.clientY - lastMouseY;
   lastMouseX = e.clientX;
   lastMouseY = e.clientY;
-
-  const sensitivity = 0.0025; // 회전 감도 조정 (값 높을수록 더 빠름)
-
-  // 거리뷰처럼 드래그 방향 반대로 회전
+  const sensitivity = 0.0025;
   yawT += dx * sensitivity;
   pitchT += dy * sensitivity;
-
-  // 피치(상하) 제한
-  pitchT = Math.max(THREE.MathUtils.degToRad(-85),
-                    Math.min(THREE.MathUtils.degToRad(85), pitchT));
+  pitchT = Math.max(
+    THREE.MathUtils.degToRad(-85),
+    Math.min(THREE.MathUtils.degToRad(85), pitchT)
+  );
 });
 
 /* ========================
    모드 전환 (+ 파노라마 진입시 재보정 트리거)
    ======================== */
 async function openPanoBySpot(spotId) {
-  const myToken = ++currentLoadToken; // 새 요청 토큰
+  const myToken = ++currentLoadToken;
 
-  // 상태/타이틀만 먼저
   currentSpot = spotId;
   MODE = "PANO";
   titleImg.src = TITLE_MAP[spotId] || TITLE_MAP.main;
   backImg.style.display = "block";
 
-  // 시점 리셋
   calibStart = performance.now();
   _pitchActive = false;
   yaw = pitch = yawT = pitchT = 0;
@@ -667,7 +677,7 @@ async function openPanoBySpot(spotId) {
   ensurePano();
 
   const full = PANO_MAP[spotId] || "assets/panos/default.jpg";
-  const thumb = full.replace(/\.jpg$/i, "_thumb.jpg"); // 썸네일 있으면 사용
+  const thumb = full.replace(/\.(jpg|jpeg|png|webp)$/i, "_view.webp");
 
   try {
     // (선택) 썸네일 먼저
@@ -678,33 +688,29 @@ async function openPanoBySpot(spotId) {
         if (myToken !== currentLoadToken) return;
         mesh.material.map = texThumb;
         mesh.material.needsUpdate = true;
-
-        // 이제 화면을 켠다(썸네일 표시)
         document.body.classList.add("detail-open");
         altView.setAttribute("aria-hidden", "false");
         altView.classList.add("active");
         renderer.render(scene3, camera3);
         usingThumb = true;
-      } catch {} // 썸네일 실패는 무시
+      } catch {}
     }
-
     // 풀 해상도 로드 → 스왑
     const texFull = await loadPanoTexture(full, myToken);
     if (myToken !== currentLoadToken) return;
 
     if (!usingThumb) {
-      // 썸네일이 없었다면 여기서 화면 켜기(풀해상도 준비된 상태)
       document.body.classList.add("detail-open");
       altView.setAttribute("aria-hidden", "false");
       altView.classList.add("active");
     }
-
     const old = mesh.material.map;
     mesh.material.map = texFull;
     mesh.material.needsUpdate = true;
     renderer.render(scene3, camera3);
-
-    setTimeout(() => { if (old && old !== texFull) old.dispose?.(); }, 300);
+    setTimeout(() => {
+      if (old && old !== texFull) old.dispose?.();
+    }, 300);
   } catch (err) {
     console.error("Pano load failed:", err);
     alert("파노라마 이미지를 불러오지 못했습니다. 파일 경로를 확인해 주세요.");
@@ -712,9 +718,8 @@ async function openPanoBySpot(spotId) {
   }
 }
 
-
 function closePano() {
-  currentLoadToken++; // 이후 늦게 도착한 로드는 자동 무시
+  currentLoadToken++;
   MODE = "MAP";
   currentSpot = null;
   altView.classList.remove("active");
@@ -723,7 +728,6 @@ function closePano() {
   titleImg.src = TITLE_MAP.main;
   backImg.style.display = "none";
 }
-
 
 /* 스팟 클릭 바인딩 */
 Object.keys(PANO_MAP).forEach((id) => {
@@ -737,9 +741,7 @@ altView.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closePano();
 });
-// helpImg.addEventListener("click", () => {
-//   /* TODO: 도움말 */
-// });
+// helpImg.addEventListener("click", () => {});
 
 /* ========================
    프레임 루프 (머리=스크롤/패닝/회전, 손=커서/클릭)
@@ -747,11 +749,18 @@ document.addEventListener("keydown", (e) => {
 let lastTS = -1,
   prevT = null,
   hadTipPrev = false;
+const MIN_STEP_MS = 12; // 너무 촘촘한 갱신은 스킵(소폭 안정)
 
 async function frame() {
   if (!running) return;
 
   const ts = performance.now();
+  if (prevT && ts - prevT < MIN_STEP_MS) {
+    // 프레임 스킵 가드
+    rafId = requestAnimationFrame(frame);
+    return;
+  }
+
   if (!camVideo.videoWidth) {
     rafId = requestAnimationFrame(frame);
     return;
@@ -777,10 +786,8 @@ async function frame() {
   let yawHead = 0,
     pitchHead = 0;
   let haveMatrix = false;
-  // if (fv?.faceLandmarks?.length) {
-  //   const lm = fv.faceLandmarks[0];
+
   if (fv?.faceLandmarks?.length) {
-    // 🔒 가장 먼저 잡힌 얼굴 인덱스를 고정해서 사용
     const idx = selectPrimaryFaceIndex(fv, ts);
     const lm = fv.faceLandmarks[idx];
     const leftEye = lm[33],
@@ -794,17 +801,15 @@ async function frame() {
     yawHead = ((nose.x - cx) / faceW) * 10.0;
     pitchHead = ((nose.y - cy) / faceW) * 8.0;
     const fallbackYaw = yawHead,
-      fallbackPitch = pitchHead; // 좌표 기반 폴백
+      fallbackPitch = pitchHead;
 
     try {
-      // const m = fv.facialTransformationMatrixes?.[0]?.data;
       const m = fv.facialTransformationMatrixes?.[idx]?.data;
       if (m && m.length >= 16) {
         const yawRad = Math.atan2(m[2], m[10]);
         const pitchRad = Math.asin(-m[6]);
         const matYaw = (yawRad * 180) / Math.PI / 25;
         const matPitch = (pitchRad * 180) / Math.PI / 20;
-        // 특정 방향(좌/상)에서 거의 0으로 수축할 때 소량 폴백을 혼합
         yawHead =
           Math.abs(matYaw) < 0.05 ? 0.8 * matYaw + 0.2 * fallbackYaw : matYaw;
         pitchHead =
@@ -814,37 +819,31 @@ async function frame() {
         haveMatrix = true;
       }
     } catch {}
-    // 얼굴이 검출됨 → 타임스탬프 갱신
     lastFaceSeenAt = ts;
     if (!facePresent) {
-      // 재등장 후보 시작
       if (candidateFaceStart === 0) candidateFaceStart = ts;
-      // 충분히 안정적으로 보였을 때 새 관람객으로 간주하고 재보정 시작
       if (ts - candidateFaceStart >= FACE_STABLE_MS) {
         facePresent = true;
-        calibStart = ts; // 재보정 윈도우 재시작
-        _pitchActive = false; // 히스테리시스 리셋
+        calibStart = ts;
+        _pitchActive = false;
         baseYaw = 0;
-        basePitch = 0; // 기준 초기화(윈도우 동안 다시 적응)
+        basePitch = 0;
       }
     }
   } else {
-    // 얼굴이 안 보이는 프레임
     if (facePresent && ts - lastFaceSeenAt >= FACE_GONE_MS) {
       facePresent = false;
       candidateFaceStart = 0;
       lastFaceGoneAt = ts;
     }
   }
-  // 얼굴 장시간 미검출 시 face-lock 해제
-maybeUnlockPrimaryFace(ts);
+  maybeUnlockPrimaryFace(ts);
 
   if (!calibStart) calibStart = ts;
   if (ts - calibStart < CALIB_MS) {
     baseYaw = baseYaw + 0.15 * (yawHead - baseYaw);
     basePitch = basePitch + 0.15 * (pitchHead - basePitch);
   }
-  // 행렬이 없는 경우(안경/마스크로 불안정)에는 제어를 중지하여 드리프트 방지
   if (!haveMatrix) {
     yawS = yawS * 0.9;
     pitchS = pitchS * 0.9;
@@ -866,64 +865,60 @@ maybeUnlockPrimaryFace(ts);
     tip = pv.landmarks[0][wristIdx];
   }
   if (tip) {
-    // const rawX = (1 - tip.x) * innerWidth;
-    // const rawY = tip.y * innerHeight;
-    const EDGE_PAD = 0.12; // 손 좌표가 대략 0.15~0.85쯤만 쓰는 현실 반영 (원하면 0.12~0.2 사이로 튜닝)
-
+    const EDGE_PAD = 0.12;
     function expand01(u) {
       const v = (u - EDGE_PAD) / (1 - 2 * EDGE_PAD);
-      return Math.min(1, Math.max(0, v)); // 0~1로 클램프
+      return Math.min(1, Math.max(0, v));
     }
-
     const normX = expand01(1 - tip.x); // 좌우 반전 유지
     const normY = expand01(tip.y);
+
     const rawX = normX * innerWidth;
     const rawY = normY * innerHeight;
-    pushBuf(bufX, rawX);
-    pushBuf(bufY, rawY);
+
+    // --- 저역통과 1차 IIR ---
+    if (lpX == null) {
+      lpX = rawX;
+      lpY = rawY;
+    }
+    lpX = lpX + TIP_LP * (rawX - lpX);
+    lpY = lpY + TIP_LP * (rawY - lpY);
+
+    // 중앙값 버퍼 → 칼만
+    pushBuf(bufX, lpX);
+    pushBuf(bufY, lpY);
     const zx = median(bufX),
       zy = median(bufY);
+
     const dt = Math.max(1 / 120, prevT ? (ts - prevT) / 1000 : 1 / 60);
     kf.predict(dt);
     kf.update(zx, zy);
     prevT = ts;
+
     updateCursor(kf.x[0], kf.x[1], !hadTipPrev);
     hadTipPrev = true;
-  } else hadTipPrev = false;
+  } else {
+    hadTipPrev = false;
+  }
 
   /* ===== 데드존/히스테리시스/컨트롤 ===== */
-
-  /* 1) yaw 데드존 (기존과 동일) */
   const overY = Math.max(0, Math.abs(yawS) - DEAD_Y);
-
-  /* 2) 먼저 컨트롤 값을 '선언'해서 아래에서 참조 가능하게 */
   const yawCtl = YAW_DIR * yawS;
   const pitchCtl = PITCH_DIR * pitchS;
 
-  /* 3) pitch 히스테리시스 */
   if (_pitchActive) {
-    // 활성 상태에선 충분히 안쪽으로 들어오면 비활성
     if (Math.abs(pitchS) < DEAD_P_LO * 0.9) _pitchActive = false;
   } else {
-    // 비활성 상태에선 높은 임계를 넘으면 활성
     if (Math.abs(pitchS) > DEAD_P_HI) _pitchActive = true;
   }
-
-  /* 방향을 바꾸려고 할 땐 언제든 재활성화 (끝단에서 걸리는 현상 방지) */
   if (Math.sign(pitchCtl) !== Math.sign(pitchT - pitch)) {
-    // pitchT는 목표, pitch는 현재 → 반대쪽으로 움직이려는 의도 감지
     _pitchActive = true;
   }
-
-  /* 4) 유효 pitch 과잉량 */
   const overP = _pitchActive ? Math.max(0, Math.abs(pitchS) - DEAD_P_LO) : 0;
 
   const SPD = 20;
-  //   const yawCtl   = YAW_DIR   * yawS;
-  //   const pitchCtl = PITCH_DIR * pitchS;
 
   if (MODE === "MAP") {
-    // 지도 패닝(가로/세로): 스테이지를 translate로 이동
     const scale = computeScale();
     const viewW = innerWidth,
       viewH = innerHeight;
@@ -951,19 +946,15 @@ maybeUnlockPrimaryFace(ts);
       120
     );
   } else if (MODE === "PANO") {
-    // 파노라마 회전: 체감 방향 일치
     const sens = 1.2;
     const kBase = 0.0025 * sens * (SPD / 20);
-    // 얼굴이 존재하고 캘리브 기간 이후에만 제어 적용(드리프트 억제)
     const controlEnabled = facePresent && ts - calibStart >= CALIB_MS;
     if (controlEnabled) {
-      // 좌우: 마스크/안경에서 좌측 인식이 약해지는 문제 보완 (바이어스 제거, 속도 상향)
       if (overY > 0) {
         const yawSign = Math.sign(yawCtl);
-        const yawSpeed = (0.3 + Math.pow(overY, 1.1)) * kBase * 18; // 더 빠르게
+        const yawSpeed = (0.3 + Math.pow(overY, 1.1)) * kBase * 18;
         yawT += yawSign * yawSpeed;
       }
-      // 상하: 너무 빠르다는 피드백 → 속도 하향, 시작 임계 완화
       if (overP > 0) {
         const pSign = Math.sign(pitchCtl);
         const pSpeed = overP * kBase * 18; // 느리게
@@ -972,7 +963,6 @@ maybeUnlockPrimaryFace(ts);
     }
     pitchT = softClampPitch(pitchT);
 
-    // 카메라 적용/렌더
     if (renderer) {
       const s = 0.12; // 관성
       yaw += shortestAngleDelta(yaw, yawT) * s;
