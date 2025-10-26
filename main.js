@@ -31,7 +31,7 @@ const TITLE_MAP = {
   "k4l4-btn": "./assets/titles/k4l4_title.png",
   "l4g4-btn": "./assets/titles/l4g4_title.png",
   "p3-btn": "./assets/titles/p3_title.png",
-  "g2q1-btn": "./assets/titles/g2q1_title.png",
+  // "g2q1-btn": "./assets/titles/g2q1_title.png",
   "q3f2-btn": "./assets/titles/q3f2_title.png",
   "f2e3-btn": "./assets/titles/f2e3_title.png",
   "f4u2-btn": "./assets/titles/f4u2_title.png",
@@ -43,18 +43,18 @@ const TITLE_MAP = {
 
 /* 파노라마 텍스처 매핑(스팟 → 이미지) */
 const PANO_MAP = {
-  "r3-btn": "./assets/views/r3_view.jpg",
-  "k4l4-btn": "./assets/views/k4l4_view.jpg",
-  "l4g4-btn": "./assets/views/l4g4_view.jpg",
-  "p3-btn": "./assets/views/p3_view.jpg",
-  "g2q1-btn": "./assets/views/g2q1_view.jpg",
-  "q3f2-btn": "./assets/views/q3f2_view.jpg",
-  "f2e3-btn": "./assets/views/f2e3_view.jpg",
-  "f4u2-btn": "./assets/views/f4u2_view.jpg",
-  "ub2c3-btn": "./assets/views/ub2c3_view.jpg",
-  "z23z33-btn": "./assets/views/z23z33_view.jpg",
-  "c3af-btn": "./assets/views/c3af_view.jpg",
-  "c3-btn": "./assets/views/c3_view.jpg",
+  "r3-btn": "./assets/views/r3_view.webp",
+  "k4l4-btn": "./assets/views/k4l4_view.webp",
+  "l4g4-btn": "./assets/views/l4g4_view.webp",
+  "p3-btn": "./assets/views/p3_view.webp",
+  // "g2q1-btn": "./assets/views/g2q1_view.webp",
+  "q3f2-btn": "./assets/views/q3f2_view.webp",
+  "f2e3-btn": "./assets/views/f2e3_view.webp",
+  "f4u2-btn": "./assets/views/f4u2_view.webp",
+  "ub2c3-btn": "./assets/views/ub2c3_view.webp",
+  "z23z33-btn": "./assets/views/z23z33_view.webp",
+  "c3af-btn": "./assets/views/c3af_view.webp",
+  "c3-btn": "./assets/views/c3_view.webp",
 };
 
 /* 비율 스케일 유지 (네가 준 코드 유지) */
