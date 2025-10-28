@@ -172,7 +172,7 @@ let _cxS = innerWidth * 0.5,
 let _cx = _cxS,
   _cy = _cyS;
 const MAX_STEP = 1200; // 20000 → 1200 (이상치 점프 억제)
-const LERP_MOVE = 0.4; // 0.5 → 0.18 (느리고 안정적)
+const LERP_MOVE = 0.25; // 0.5 → 0.18 (느리고 안정적)
 const CURSOR_NOISE_DEADZONE = 2.5; // 미세 떨림 무시
 
 /* ----- 중앙값 버퍼 (유효한 median) ----- */
